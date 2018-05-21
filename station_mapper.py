@@ -1,11 +1,12 @@
 import json
+import math
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.patches import Polygon
 
-__version__ = '1.0'
+__version__ = '2.0'
 
 class StationMapper:
 
@@ -99,13 +100,16 @@ class StationMapper:
 
         return None
 
-    def draw(self,data=None,fig=None,ax=None,route_list=None,location_list=None,location_labels=None):
+    def draw(self,sizes=None,colors=None,fig=None,ax=None,route_list=None,location_list=None,location_labels=None):
 
         """
             Draw a basemap with subway routes, and represent data about each station with a disc of the specified size.
 
-            `data` (optional) :
+            `sizes` (optional) :
                 A dictionary where each key is a location_id and each value is a number (corresponding to the radius of the marker).
+
+            `colors` (optional) :
+                A dictionary where each key is a location_id and each value is a string (corresponding to the color of the marker).
 
             `fig`, `ax` (optional) : 
                 A figure and axes in which to plot 
@@ -133,40 +137,50 @@ class StationMapper:
         elif location_list is False:
             location_list = []
 
-        # Default: If no labels are specified, label all points for which data is specified (or none if no data is psp)
+        # Default: If no labels are specified, label all points for which data is specified (or none if no data is specified)
         if location_labels is None:
-            if data is None:
+            if sizes is None:
                 location_labels = []
             else:
-                location_labels = [location_id for location_id in data]
+                location_labels = [location_id for location_id in sizes]
         
         # Default: If no data is specified, plot equal-sized dots (radius=1) for all locations:
-        if data is None:
-            data = {location_id:1 for location_id in locations['location_id']}
+        if sizes is None:
+            sizes = {location_id:1 for location_id in locations['location_id']}
+        
+        # Default: If no data is specified, use default color:
+        if colors is None:
+            colors = {}
 
         # Build data frame:
-        df = []
+        data = []
         for i,row in locations.iterrows():
             location_id = row['location_id']
             lon = row['location_lon']
             lat = row['location_lat']
-            radius = data[location_id]/1000 if (location_id in data) else 0
+            color = colors[location_id] if (location_id in colors) else "gray"
+            area = sizes[location_id] if (location_id in sizes) else 0
+            radius = math.sqrt(area/math.pi)
             label = row['location_name'] if (location_id in location_labels) else ""
-            df.append({
+            data.append({
                 'location_id' : location_id,
                 'lon' : lon,
                 'lat' : lat,
+                'area' : area,
                 'radius' : radius,
+                'color' : color,
                 'label' : label,
             })
-        df = pd.DataFrame(df,columns=[
+        data = pd.DataFrame(data,columns=[
             'location_id',
             'lon',
             'lat',
+            'area',
             'radius',
+            'color',
             'label',
         ])
-        df = df.sort_values(['radius'],ascending=False)  # Plot largest circles first.
+        data = data.sort_values(['radius'],ascending=False).reset_index(drop=True)  # Plot largest circles first.
 
         # Create plot:
         if (ax is not None):
@@ -179,6 +193,7 @@ class StationMapper:
         # Adjust axes:
         ax.axis('off')
         ax.set_aspect(aspect='equal')
+        #ax.set_aspect(aspect='equal',adjustable='datalim')
        
         # Plot basemap:
         for feature_id in boroughs:
@@ -205,18 +220,22 @@ class StationMapper:
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='white',alpha=0.5,zorder=2.5) )
        
         # Plot stations:
-        for i,row in df.iterrows():
+        for i,row in data.iterrows():
             lon = row['lon']
             lat = row['lat']
-            radius = row['radius']
+            radius = row['radius']/400
+            color = row['color']
             label = row['label']
-            ax.add_patch( Circle((lon,lat),radius=radius,facecolor='gray',edgecolor='black',alpha=1,zorder=3) )
+            ax.add_patch( Circle((lon,lat),radius=radius,facecolor=color,edgecolor='black',alpha=1,zorder=3) )
             ax.text( lon+0.002+radius,lat, label, ha='left',va='center',color='black',fontsize=8,alpha=1,zorder=4 )
 
         # Adjust extents:
         #max.autoscale_view()
         ax.set_xlim((xmin,xmax))
         ax.set_ylim((ymin,ymax))
+
+        # Store data tables as figure properties:
+        fig.data = data
 
         return fig
 
