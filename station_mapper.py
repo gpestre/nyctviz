@@ -116,12 +116,15 @@ class StationMapper:
             
             `route_list` (optional) :
                 A list of route_ids to draw, as strings.
+                Or True to draw all routes; or False to draw none.
             
-            `route_list` (optional) :
+            `location_list` (optional) :
                 A list of location_ids to draw, as strings.
+                Or True to draw all locations; or False to draw none.
             
             `location_labels` (optional) :
                 A list of location_ids to label, as strings.
+                Or True to draw all location labels; or False to draw none.
             
         """
 
@@ -152,6 +155,10 @@ class StationMapper:
                 location_labels = []
             else:
                 location_labels = [location_id for location_id in sizes]
+        elif location_labels is False:
+                location_labels = []
+        elif location_labels is True:
+            location_labels = [location_id for location_id in sizes]
         
         # Default: If no data is specified, plot equal-sized dots (radius=1) for all locations:
         if sizes is None:
