@@ -100,20 +100,29 @@ class StationMapper:
 
         return None
 
-    def draw(self,sizes=None,colors=None,fig=None,ax=None,route_list=None,location_list=None,location_labels=None):
+    def draw(self,fig=None,ax=None,sizes=None,colors=None,route_list=None,location_list=None,location_labels=None):
 
         """
             Draw a basemap with subway routes, and represent data about each station with a disc of the specified size.
 
-            `sizes` (optional) :
-                A dictionary where each key is a location_id and each value is a number (corresponding to the radius of the marker).
-
-            `colors` (optional) :
-                A dictionary where each key is a location_id and each value is a string (corresponding to the color of the marker).
-
             `fig`, `ax` (optional) : 
                 A figure and axes in which to plot 
-
+            
+            `sizes` (optional) :
+                A dictionary of marker areas (keyed by location_id), as numerical values.
+            
+            `colors` (optional) :
+                A dictionary of marker colors (keyed by location_id), as strings.
+            
+            `route_list` (optional) :
+                A list of route_ids to draw, as strings.
+            
+            `route_list` (optional) :
+                A list of location_ids to draw, as strings.
+            
+            `location_labels` (optional) :
+                A list of location_ids to label, as strings.
+            
         """
 
         # Load internal data:
