@@ -19,6 +19,18 @@ class StationMapper:
         """
             Initialize a mapper of NYC boroughs, subway routes, and stations.
         """
+
+        # Set default map extents:
+
+        self._xmin = -74.283370478116183
+        self._xmax = -73.672229948907159
+        self._ymin = +40.475144526128858
+        self._ymax = +40.936503645041562
+
+        self._xmin_zoom = -74.06
+        self._xmax_zoom = -73.69
+        self._ymin_zoom = +40.53
+        self._ymax_zoom = +40.93
        
         # Read basemap data:
         with open("nyctviz/data/basemap/BoroughBoundaries.geojson") as json_file:
@@ -43,6 +55,7 @@ class StationMapper:
         trips = pd.read_csv('nyctviz/data/gtfs/trips.csv')
         routes = pd.read_csv('nyctviz/data/gtfs/routes.csv')
         stops = pd.read_csv('nyctviz/data/gtfs/stops.csv')
+        stop_times = pd.read_csv('nyctviz/data/gtfs/stop_times.csv')
        
         # Prepare GTFS data:
         corridors = shapes.copy()
@@ -92,6 +105,14 @@ class StationMapper:
         # Prepare location data:
         locations = stops[stops['location_type']==1][['stop_id','stop_name','stop_lat','stop_lon']].reset_index(drop=True)
         locations = locations.rename(columns={'stop_id':'location_id','stop_name':'location_name','stop_lat':'location_lat','stop_lon':'location_lon'})
+        # Prepare route data:
+        stop_routes = stop_times[['trip_id','stop_id']].drop_duplicates()
+        stop_routes = stop_routes.merge(trips,left_on=['trip_id'],right_on=['trip_id'])[['stop_id','route_id']].drop_duplicates()
+        stop_routes = stop_routes.merge(stops,left_on=['stop_id'],right_on=['stop_id'])[['parent_station','route_id']].drop_duplicates()
+        stop_routes = stop_routes.rename(columns={'parent_station':'location_id'})
+        stop_routes = stop_routes.groupby('location_id').agg(lambda vals: set(vals)).reset_index()
+        # Add route data to location data:
+        locations = locations.merge(stop_routes,left_on=['location_id'],right_on=['location_id'])
        
         # Store internal data:
         self._boroughs = boroughs
@@ -100,7 +121,7 @@ class StationMapper:
 
         return None
 
-    def draw(self,fig=None,ax=None,sizes=dict(),colors=dict(),route_list=list(),location_list=list(),location_labels=dict(),location_label_options=dict()):
+    def draw(self,fig=None,ax=None,sizes=dict(),colors=dict(),route_list=list(),location_list=list(),location_labels=dict(),location_label_options=dict(),zoom=False):
 
         """
             Draw a basemap with subway routes, and represent data about each station with a disc of the specified size.
@@ -131,13 +152,21 @@ class StationMapper:
             
         """
 
+        # Define helper function:
+        def is_empty(x):
+            try:
+                result = len(x)==0
+            except:
+                result = False
+            return result
+
         # Load internal data:
         boroughs = self._boroughs
         corridors = self._corridors
         locations = self._locations
 
         # Default: Draw all routes:
-        if route_list==list():
+        if is_empty(route_list):
             route_list = corridors['route_id'].unique()
         elif route_list is True:
             route_list = corridors['route_id'].unique()
@@ -145,7 +174,7 @@ class StationMapper:
             route_list = []
 
         # Default: Draw all locations:
-        if location_list==list():
+        if is_empty(location_list):
             location_list = locations['location_id'].unique()
         elif location_list is True:
             location_list = locations['location_id'].unique()
@@ -153,22 +182,22 @@ class StationMapper:
             location_list = []
 
         # Default: If no labels are specified, label all points for which data is specified (or none if no data is specified)
-        if location_labels==dict():
-            if sizes==dict():
+        if is_empty(location_labels):
+            if is_empty(sizes):
                 location_labels = {}
             else:
-                location_labels = {location_id:location_id for location_id in sizes}
+                location_labels = {location_id:location_id for location_id in locations['location_id']}
         elif location_labels is False:
                 location_labels = {}
         elif location_labels is True:
-            location_labels = {location_id:location_id for location_id in sizes}
+            location_labels = {location_id:location_id for location_id in locations['location_id']}
         
         # Default: If no data is specified, plot equal-sized dots (radius=1) for all locations:
-        if sizes==dict():
+        if is_empty(sizes):
             sizes = {location_id:1 for location_id in locations['location_id']}
         
         # Default: If no data is specified, use default color:
-        if colors==dict():
+        if is_empty(colors):
             colors = {}
 
         # Build data frame:
@@ -225,16 +254,14 @@ class StationMapper:
         for i,grp in corridors.groupby(['shape_id']):
             route_id = grp['route_id'].iloc[0]
             route_color = grp['route_color'].iloc[0]
-            if route_id in route_list:
+            if route_id in set(route_list):
                 ax.plot( grp['shape_pt_lon'],grp['shape_pt_lat'], color=route_color,linewidth=1.5,alpha=1,zorder=2 )
 
         # Add background layer and masking layer:
         #xmin,xmax = ax.get_xlim()
         #ymin,ymax = ax.get_ylim()
-        xmin = -74.283370478116183
-        xmax = -73.672229948907159
-        ymin = 40.475144526128858
-        ymax = 40.936503645041562
+        xmin,xmax = self._xmin,self._xmax
+        ymin,ymax = self._ymin,self._ymax
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='aliceblue',alpha=1,zorder=0) )
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='white',alpha=0.5,zorder=2.5) )
 
@@ -254,18 +281,39 @@ class StationMapper:
        
         # Plot stations:
         for i,row in data.iterrows():
+            location_id = row['location_id']
             lon = row['lon']
             lat = row['lat']
             radius = row['radius']/400
             color = row['color']
             label = row['label']
-            ax.add_patch( Circle((lon,lat),radius=radius,facecolor=color,edgecolor='black',alpha=1,zorder=3) )
-            ax.text( lon+0.002+radius,lat, label, **location_label_options )
+            # Calculate horizontal label adjustment:
+            if location_label_options['ha']=='center':
+                label_h_offset = 0
+            elif location_label_options['ha']=='left':
+                label_h_offset = +(radius+0.002)
+            elif location_label_options['ha']=='right':
+                label_h_offset = -(radius+0.002)
+            # Calculate vertical label adjustment:
+            if location_label_options['va']=='center':
+                label_v_offset = 0
+            elif location_label_options['va']=='bottom':
+                label_v_offset = +(radius+0.002)
+            elif location_label_options['va']=='top':
+                label_v_offset = -(radius+0.002)
+            # Draw markers and labels:
+            if location_id in set(location_list):
+                ax.add_patch( Circle((lon,lat),radius=radius,facecolor=color,edgecolor='black',alpha=1,zorder=3) )
+                ax.text( lon+label_h_offset,lat+label_v_offset, label, **location_label_options )
 
         # Adjust extents:
         #max.autoscale_view()
-        ax.set_xlim((xmin,xmax))
-        ax.set_ylim((ymin,ymax))
+        if zoom==True:
+            ax.set_xlim((self._xmin_zoom,self._xmax_zoom))
+            ax.set_ylim((self._ymin_zoom,self._ymax_zoom))
+        else:
+            ax.set_xlim((self._xmin,self._xmax))
+            ax.set_ylim((self._ymin,self._ymax))
 
         # Store data tables as figure properties:
         fig.data = data
