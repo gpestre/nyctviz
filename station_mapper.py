@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.patches import Polygon
 
-__version__ = '2.0'
+__version__ = '3.0'
 
 class StationMapper:
 
@@ -100,7 +100,7 @@ class StationMapper:
 
         return None
 
-    def draw(self,fig=None,ax=None,sizes=None,colors=None,route_list=None,location_list=None,location_labels=None):
+    def draw(self,fig=None,ax=None,sizes=dict(),colors=dict(),route_list=list(),location_list=list(),location_labels=dict(),location_label_options=dict()):
 
         """
             Draw a basemap with subway routes, and represent data about each station with a disc of the specified size.
@@ -123,8 +123,11 @@ class StationMapper:
                 Or True to draw all locations; or False to draw none.
             
             `location_labels` (optional) :
-                A list of location_ids to label, as strings.
+                A dictionary of labels (keyed by location_id), as strings.
                 Or True to draw all location labels; or False to draw none.
+            
+            `location_label_options` (optional) :
+                A dictionary of parameters and values to use when drawing location labels.
             
         """
 
@@ -134,7 +137,7 @@ class StationMapper:
         locations = self._locations
 
         # Default: Draw all routes:
-        if route_list is None:
+        if route_list==list():
             route_list = corridors['route_id'].unique()
         elif route_list is True:
             route_list = corridors['route_id'].unique()
@@ -142,7 +145,7 @@ class StationMapper:
             route_list = []
 
         # Default: Draw all locations:
-        if location_list is None:
+        if location_list==list():
             location_list = locations['location_id'].unique()
         elif location_list is True:
             location_list = locations['location_id'].unique()
@@ -150,22 +153,22 @@ class StationMapper:
             location_list = []
 
         # Default: If no labels are specified, label all points for which data is specified (or none if no data is specified)
-        if location_labels is None:
-            if sizes is None:
-                location_labels = []
+        if location_labels==dict():
+            if sizes==dict():
+                location_labels = {}
             else:
-                location_labels = [location_id for location_id in sizes]
+                location_labels = {location_id:location_id for location_id in sizes}
         elif location_labels is False:
-                location_labels = []
+                location_labels = {}
         elif location_labels is True:
-            location_labels = [location_id for location_id in sizes]
+            location_labels = {location_id:location_id for location_id in sizes}
         
         # Default: If no data is specified, plot equal-sized dots (radius=1) for all locations:
-        if sizes is None:
+        if sizes==dict():
             sizes = {location_id:1 for location_id in locations['location_id']}
         
         # Default: If no data is specified, use default color:
-        if colors is None:
+        if colors==dict():
             colors = {}
 
         # Build data frame:
@@ -234,6 +237,20 @@ class StationMapper:
         ymax = 40.936503645041562
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='aliceblue',alpha=1,zorder=0) )
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='white',alpha=0.5,zorder=2.5) )
+
+        # Prepare label text parameters:
+        default_location_label_options = {
+            'ha' : 'left',
+            'va' : 'center',
+            'color' : 'black',
+            'fontsize' : 8,
+            'alpha' : 1,
+            'zorder' : 4,
+            'bbox' : {'facecolor':'white','alpha':0.5},
+        }
+        for param,value in default_location_label_options.items():
+            if param not in location_label_options:
+                location_label_options[param] = value
        
         # Plot stations:
         for i,row in data.iterrows():
@@ -243,7 +260,7 @@ class StationMapper:
             color = row['color']
             label = row['label']
             ax.add_patch( Circle((lon,lat),radius=radius,facecolor=color,edgecolor='black',alpha=1,zorder=3) )
-            ax.text( lon+0.002+radius,lat, label, ha='left',va='center',color='black',fontsize=8,alpha=1,zorder=4 )
+            ax.text( lon+0.002+radius,lat, label, **location_label_options )
 
         # Adjust extents:
         #max.autoscale_view()
