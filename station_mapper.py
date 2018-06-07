@@ -240,8 +240,9 @@ class StationMapper:
 
         # Adjust axes:
         ax.axis('off')
+        ax.get_xaxis().set_visible(False)
+        ax.get_yaxis().set_visible(False)
         ax.set_aspect(aspect='equal')
-        #ax.set_aspect(aspect='equal',adjustable='datalim')
        
         # Plot basemap:
         for feature_id in boroughs:
