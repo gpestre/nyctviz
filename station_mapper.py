@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.patches import Polygon
 
-__version__ = '3.1'
+__version__ = '3.2'
 
 class StationMapper:
 
