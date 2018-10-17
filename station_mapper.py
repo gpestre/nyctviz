@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from matplotlib.patches import Circle
 from matplotlib.patches import Polygon
+from pyproj import Proj, transform
 
 __version__ = '3.2'
 
@@ -14,28 +15,52 @@ class StationMapper:
         Produce maps on the New York City Transit routes and stations (represented by a circle of the specificed size).
     """
 
-    def __init__(self):
+    def __init__(self,transform=True):
 
         """
             Initialize a mapper of NYC boroughs, subway routes, and stations.
         """
 
+        # Set default transformation:
+
+        self._transform = transform
+        self._rotate_degrees = -29
+        self._rotate_origin = (-73.9758,40.7675)
+
         # Set default map extents:
 
-        self._xmin = -74.283370478116183
-        self._xmax = -73.672229948907159
-        self._ymin = +40.475144526128858
-        self._ymax = +40.936503645041562
+        if self._transform==True:
 
-        self._xmin_zoom = -74.06
-        self._xmax_zoom = -73.69
-        self._ymin_zoom = +40.53
-        self._ymax_zoom = +40.93
-       
+            self._unit_scaling = 500
+
+            self._xmin = 724150
+            self._xmax = 854800
+            self._ymin = 539550
+            self._ymax = 743450
+            
+            self._xmin_zoom = 746000
+            self._xmax_zoom = 854000
+            self._ymin_zoom = 600000
+            self._ymax_zoom = 741000
+
+        else:
+
+            self._unit_scaling = 1/400
+
+            self._xmin = -74.283370478116183
+            self._xmax = -73.672229948907159
+            self._ymin = +40.475144526128858
+            self._ymax = +40.936503645041562
+
+            self._xmin_zoom = -74.06
+            self._xmax_zoom = -73.69
+            self._ymin_zoom = +40.53
+            self._ymax_zoom = +40.93
+
         # Read basemap data:
         with open("nyctviz/data/basemap/BoroughBoundaries.geojson") as json_file:
             geo_json = json.load(json_file) # or geojson.load(json_file)
-       
+        
         # Prepare basemap data:
         boroughs = {}
         for f in range(len(geo_json['features'])):
@@ -49,14 +74,14 @@ class StationMapper:
                     if boro_name not in boroughs: 
                         boroughs[boro_name] = []
                     boroughs[boro_name].append(poly)
-       
+        
         # Read GTFS data:
         shapes = pd.read_csv('nyctviz/data/gtfs/shapes.csv')
         trips = pd.read_csv('nyctviz/data/gtfs/trips.csv')
         routes = pd.read_csv('nyctviz/data/gtfs/routes.csv')
         stops = pd.read_csv('nyctviz/data/gtfs/stops.csv')
         stop_times = pd.read_csv('nyctviz/data/gtfs/stop_times.csv')
-       
+        
         # Prepare GTFS data:
         corridors = shapes.copy()
         corridors['route_id'] = [shape_id.split('.')[0] for shape_id in corridors['shape_id']]
@@ -101,7 +126,7 @@ class StationMapper:
         }
         corridors['route_color'] = [route_colors[route_id] for route_id in corridors['route_id']]
         corridors = corridors[['shape_id','shape_pt_sequence','shape_pt_lat','shape_pt_lon','route_id','route_color']].drop_duplicates()
-       
+
         # Prepare location data:
         locations = stops[stops['location_type']==1][['stop_id','stop_name','stop_lat','stop_lon']].reset_index(drop=True)
         locations = locations.rename(columns={'stop_id':'location_id','stop_name':'location_name','stop_lat':'location_lat','stop_lon':'location_lon'})
@@ -113,7 +138,7 @@ class StationMapper:
         stop_routes = stop_routes.groupby('location_id').agg(lambda vals: set(vals)).reset_index()
         # Add route data to location data:
         locations = locations.merge(stop_routes,left_on=['location_id'],right_on=['location_id'])
-       
+
         # Store internal data:
         self._boroughs = boroughs
         self._corridors = corridors
@@ -238,34 +263,49 @@ class StationMapper:
         else:
             fig,ax = plt.subplots(1,1,figsize=(20,20))
 
+        # Get extents:
+        if zoom==True:
+            xmin = self._xmin_zoom
+            xmax = self._xmax_zoom
+            ymin = self._ymin_zoom
+            ymax = self._ymax_zoom
+        else:
+            xmin = self._xmin
+            xmax = self._xmax
+            ymin = self._ymin
+            ymax = self._ymax
+
         # Adjust axes:
         ax.axis('off')
         ax.get_xaxis().set_visible(False)
         ax.get_yaxis().set_visible(False)
         ax.set_aspect(aspect='equal')
-       
+        
         # Plot basemap:
         for feature_id in boroughs:
             multipoly = boroughs[feature_id]
             for poly in multipoly:
+                poly = self.map_transform(poly)
                 patch = Polygon(poly,closed=True,facecolor='whitesmoke',edgecolor='black',alpha=1,zorder=1)
                 ax.add_patch( patch )
-       
+        
         # Plot corridors:
         for i,grp in corridors.groupby(['shape_id']):
             route_id = grp['route_id'].iloc[0]
             route_color = grp['route_color'].iloc[0]
             if route_id in set(route_list):
-                ax.plot( grp['shape_pt_lon'],grp['shape_pt_lat'], color=route_color,linewidth=1.5,alpha=1,zorder=2 )
+                points = [(x,y) for x,y in zip(grp['shape_pt_lon'],grp['shape_pt_lat'])]
+                points = self.map_transform(points)
+                xs = [x for x,y in points]
+                ys = [y for x,y in points]
+                ax.plot( xs,ys, color=route_color,linewidth=1.5,alpha=1,zorder=2 )
 
         # Add background layer and masking layer:
         #xmin,xmax = ax.get_xlim()
         #ymin,ymax = ax.get_ylim()
-        xmin,xmax = self._xmin,self._xmax
-        ymin,ymax = self._ymin,self._ymax
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='aliceblue',alpha=1,zorder=0) )
         ax.add_patch( Polygon( [(xmin,ymin),(xmin,ymax),(xmax,ymax),(xmax,ymin)] ,closed=True,facecolor='white',alpha=0.5,zorder=2.5) )
-
+        
         # Prepare label text parameters:
         default_location_label_options = {
             'ha' : 'left',
@@ -285,23 +325,28 @@ class StationMapper:
             location_id = row['location_id']
             lon = row['lon']
             lat = row['lat']
-            radius = row['radius']/400
+            radius = row['radius']
             color = row['color']
             label = row['label']
+            padding = 1.5
+            # Adjust:
+            lon,lat = self.map_transform(points=[(lon,lat)])[0]
+            radius = radius*self._unit_scaling
+            padding = padding*self._unit_scaling
             # Calculate horizontal label adjustment:
             if location_label_options['ha']=='center':
                 label_h_offset = 0
             elif location_label_options['ha']=='left':
-                label_h_offset = +(radius+0.002)
+                label_h_offset = +(radius+padding)
             elif location_label_options['ha']=='right':
-                label_h_offset = -(radius+0.002)
+                label_h_offset = -(radius+padding)
             # Calculate vertical label adjustment:
             if location_label_options['va']=='center':
                 label_v_offset = 0
             elif location_label_options['va']=='bottom':
-                label_v_offset = +(radius+0.002)
+                label_v_offset = +(radius+padding)
             elif location_label_options['va']=='top':
-                label_v_offset = -(radius+0.002)
+                label_v_offset = -(radius+padding)
             # Draw markers and labels:
             if location_id in set(location_list):
                 ax.add_patch( Circle((lon,lat),radius=radius,facecolor=color,edgecolor='black',alpha=1,zorder=3) )
@@ -309,17 +354,77 @@ class StationMapper:
 
         # Adjust extents:
         #max.autoscale_view()
-        if zoom==True:
-            ax.set_xlim((self._xmin_zoom,self._xmax_zoom))
-            ax.set_ylim((self._ymin_zoom,self._ymax_zoom))
-        else:
-            ax.set_xlim((self._xmin,self._xmax))
-            ax.set_ylim((self._ymin,self._ymax))
+        ax.set_xlim((xmin,xmax))
+        ax.set_ylim((ymin,ymax))
 
         # Store data tables as figure properties:
         fig.data = data
 
         return fig
+
+    def _map_reproject(self,points):
+        """
+            Convert from geographic coordinate system (spheroid):
+                WGS 1984 (EPSG:4326)
+                http://spatialreference.org/ref/epsg/4326/
+            To projected coordinate system (plane):
+                NAD 1983 StatePlane New York Long Island FIPS 3104 Feet (ESRI:102718)
+                http://spatialreference.org/ref/esri/nad-1983-stateplane-new-york-long-island-fips-3104-feet/
+            :return: <list> A list of pairs of floats.
+        """
+        inProj = Proj("+init=EPSG:4326")
+        outProj = Proj("+proj=lcc +lat_1=40.66666666666666 +lat_2=41.03333333333333 +lat_0=40.16666666666666 +lon_0=-74 +x_0=300000 +y_0=0 +ellps=GRS80 +datum=NAD83 +to_meter=0.3048006096012192 +no_defs",preserve_units=True)
+        points = [transform(inProj,outProj,x,y) for x,y in points]
+        return points
+
+    def _map_rotate(self,points,degrees,origin):
+        """
+            Rotate pairs of x,y coordinates clockwise around the specified origin.
+            :return: <list> A list of pairs of floats.
+        """
+
+        points = np.matrix([
+            [x for x,y in points],
+            [y for x,y in points]
+        ])
+
+        origin = np.matrix([
+            [origin[0]],
+            [origin[1]]
+        ])
+        
+        theta = -math.radians(degrees)
+
+        rotation = np.matrix([
+            [math.cos(theta), -math.sin(theta)],
+            [math.sin(theta), math.cos(theta)]
+        ])
+        
+        new_points = (rotation * (points-origin)) + origin
+        
+        xs,ys = new_points.tolist()
+        new_points = [(x,y) for x,y in zip(xs,ys)]
+        
+        return new_points
+
+    def _map_transform(self,points):
+        """
+            Combine geographic projection and rotation on a pair of x,y (lon,lat) coordinates.
+        """
+        #points = [(x,y) for x,y in points]
+        points = self._map_reproject(points=points)
+        points = self._map_rotate(points=points,degrees=self._rotate_degrees,origin=self._rotate_origin)
+        return points
+
+    def map_transform(self,points):
+        """
+            Apply transformation if necessary (for internal use).
+        """
+        
+        if self._transform==True:
+            return self._map_transform(points)
+        else:
+            return points
 
     @property
     def corridors(self):
